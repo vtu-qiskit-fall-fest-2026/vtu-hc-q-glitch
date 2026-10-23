@@ -24,6 +24,7 @@ from src.preprocessing import DataPreprocessor
 from src.classical_models import ClassicalBaselines
 from src.quantum_kernel import QuantumKernelClassifier
 from src.quantum_vqc import VariationalQuantumClassifier
+from src.hybrid_ensemble import HybridEnsemble
 from src.evaluation import ModelEvaluator
 
 
@@ -219,6 +220,67 @@ class TestModelStore(unittest.TestCase):
         self.assertEqual(loaded["test_key"], "test_value")
         if os.path.exists(test_path):
             os.remove(test_path)
+
+
+class TestHybridEnsemble(unittest.TestCase):
+    """Unit tests for the Hybrid Quantum-Classical Ensemble."""
+
+    @classmethod
+    def setUpClass(cls):
+        """Prepare shared minimal data and trained components for ensemble tests."""
+        np.random.seed(42)
+        cls.n = 40
+        cls.X_q = np.random.uniform(0.1, np.pi - 0.1, size=(cls.n, 6))
+        cls.X_c = np.random.randn(cls.n, 10)
+        cls.y = np.array([1] * 8 + [0] * 32)
+
+        # Train minimal classical models for ensemble
+        from sklearn.ensemble import RandomForestClassifier
+        from sklearn.svm import SVC
+        cls.rf = RandomForestClassifier(n_estimators=10, random_state=42)
+        cls.rf.fit(cls.X_c, cls.y)
+        cls.svm = SVC(kernel="rbf", probability=True, random_state=42)
+        cls.svm.fit(cls.X_c, cls.y)
+
+    def _make_ensemble(self):
+        ens = HybridEnsemble(
+            quantum_classifier=None,   # No QSVC — tests graceful fallback
+            classical_rf=self.rf,
+            classical_svm=self.svm,
+        )
+        ens.is_trained = True
+        return ens
+
+    def test_ensemble_instantiation(self):
+        """Ensemble initialises with correct default weights."""
+        ens = self._make_ensemble()
+        self.assertAlmostEqual(ens.base_weights.sum(), 1.0, places=6)
+        self.assertAlmostEqual(ens.borderline_weights.sum(), 1.0, places=6)
+
+    def test_predict_proba_shape(self):
+        """predict_proba_from_features returns correct shape and valid probabilities."""
+        ens = self._make_ensemble()
+        probs = ens.predict_proba_from_features(self.X_q, self.X_c)
+        self.assertEqual(probs.shape, (self.n,))
+        self.assertTrue(np.all(probs >= 0.0) and np.all(probs <= 1.0))
+
+    def test_calibrate_and_evaluate(self):
+        """End-to-end calibrate + evaluate returns all expected metric keys."""
+        ens = self._make_ensemble()
+        ens.calibrate_threshold(self.X_q, self.X_c, self.y)
+        metrics = ens.evaluate(self.X_q, self.X_c, self.y)
+        for key in ["accuracy", "f1_score", "precision", "recall", "roc_auc", "quantum_arbitration_rate"]:
+            self.assertIn(key, metrics)
+            self.assertGreaterEqual(metrics[key], 0.0)
+            self.assertLessEqual(metrics[key], 1.0)
+
+    def test_arbitration_report(self):
+        """Arbitration report contains expected section headers."""
+        ens = self._make_ensemble()
+        ens.predict_proba_from_features(self.X_q, self.X_c)
+        report = ens.get_arbitration_report()
+        self.assertIn("Hybrid Ensemble Arbitration Report", report)
+        self.assertIn("Quantum arbitration path", report)
 
 
 if __name__ == "__main__":

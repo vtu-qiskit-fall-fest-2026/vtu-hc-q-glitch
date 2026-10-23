@@ -22,6 +22,7 @@ from src.preprocessing import DataPreprocessor
 from src.classical_models import ClassicalBaselines
 from src.quantum_kernel import QuantumKernelClassifier
 from src.quantum_vqc import VariationalQuantumClassifier
+from src.hybrid_ensemble import HybridEnsemble
 from src.evaluation import ModelEvaluator
 
 # Configure logging
@@ -139,10 +140,25 @@ def run_pipeline():
     vqc_metrics = vqc.evaluate(X_test_quantum, y_test)
 
     # ──────────────────────────────────────────────
-    # Step 6: Quantum Hardware Noise Simulation & Mitigation
+    # Step 6: Hybrid Quantum-Classical Ensemble
     # ──────────────────────────────────────────────
     logger.info("=" * 50)
-    logger.info("STEP 6: Quantum Hardware Noise & Error Mitigation Benchmark")
+    logger.info("STEP 6: Building Hybrid Quantum-Classical Ensemble")
+    logger.info("=" * 50)
+
+    ensemble = HybridEnsemble.from_pipeline(
+        classical_baselines=classical,
+        quantum_kernel_clf=qsvm,
+    )
+    ensemble.calibrate_threshold(X_val_quantum, X_val_classical, y_val)
+    ensemble_metrics = ensemble.evaluate(X_test_quantum, X_test_classical, y_test)
+    logger.info(ensemble.get_arbitration_report())
+
+    # ──────────────────────────────────────────────
+    # Step 7: Quantum Hardware Noise Simulation & Mitigation
+    # ──────────────────────────────────────────────
+    logger.info("=" * 50)
+    logger.info("STEP 7: Quantum Hardware Noise & Error Mitigation Benchmark")
     logger.info("=" * 50)
 
     from src.quantum_noise import QuantumNoiseBenchmark
@@ -151,10 +167,10 @@ def run_pipeline():
     noise_chart_path = noise_bench.plot_benchmark()
 
     # ──────────────────────────────────────────────
-    # Step 7: Compare and report results
+    # Step 8: Compare and report results
     # ──────────────────────────────────────────────
     logger.info("=" * 50)
-    logger.info("STEP 7: Comprehensive Evaluation & Reporting")
+    logger.info("STEP 8: Comprehensive Evaluation & Reporting")
     logger.info("=" * 50)
 
     evaluator = ModelEvaluator()
@@ -163,9 +179,10 @@ def run_pipeline():
     for model_name, metrics in classical_results.items():
         evaluator.add_result(model_name, metrics)
 
-    # Register quantum results
+    # Register quantum and ensemble results
     evaluator.add_result("Quantum Kernel (QSVM)", qsvm_metrics)
     evaluator.add_result("VQC (Variational)", vqc_metrics)
+    evaluator.add_result("★ Hybrid Ensemble (Q+RF+SVM)", ensemble_metrics)
 
     # Generate comparison chart
     evaluator.plot_comparison_bar()
@@ -185,6 +202,8 @@ def run_pipeline():
         "classical": classical,
         "qsvm": qsvm,
         "vqc": vqc,
+        "ensemble": ensemble,
+        "ensemble_metrics": ensemble_metrics,
         "noise_benchmark": noise_results,
         "preprocessor": preprocessor,
         "dataset": dataset,

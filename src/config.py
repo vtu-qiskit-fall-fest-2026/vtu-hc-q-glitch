@@ -68,7 +68,7 @@ class ProjectConfig:
     dashboard: DashboardConfig = field(default_factory=DashboardConfig)
     project_name: str = "Q-Glitch"
     team_id: str = "VTU-QFF-HC-0190"
-    version: str = "1.0.0"
+    version: str = "2.0.0"
 
 
 # Global config instance
